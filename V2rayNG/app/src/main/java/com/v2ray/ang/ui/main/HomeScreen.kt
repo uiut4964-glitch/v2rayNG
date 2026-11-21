@@ -49,7 +49,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -141,6 +140,19 @@ private fun pushSniHistory(context: Context, sni: String) {
         .apply()
 }
 
+
+private const val KEY_CUSTOM_ON = "custom_on"
+private const val KEY_SESS_START = "sess_start"
+private const val KEY_SESS_RX = "sess_rx"
+private const val KEY_SESS_TX = "sess_tx"
+
+private fun loadCustomOn(context: Context): Boolean =
+    context.getSharedPreferences(HOME_PREFS, Context.MODE_PRIVATE).getBoolean(KEY_CUSTOM_ON, false)
+
+private fun saveCustomOn(context: Context, value: Boolean) {
+    context.getSharedPreferences(HOME_PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_CUSTOM_ON, value).apply()
+}
+
 private fun formatBytes(bytes: Long): String {
     if (bytes < 0) return "—"
     val kb = 1024.0
@@ -180,7 +192,7 @@ private fun HomeCard(modifier: Modifier = Modifier, content: @Composable ColumnS
             .fillMaxWidth()
             .clip(RoundedCornerShape(20.dp))
             .background(HomeColors.Card)
-            .padding(16.dp),
+            .padding(14.dp),
         content = content
     )
 }
@@ -191,7 +203,7 @@ private fun ConnectButton(running: Boolean, onClick: () -> Unit) {
     Box(
         contentAlignment = Alignment.Center,
         modifier = Modifier
-            .size(210.dp)
+            .size(190.dp)
             .clip(CircleShape)
             .background(Brush.radialGradient(listOf(ring.copy(alpha = 0.28f), Color.Transparent)))
             .clickable(onClick = onClick)
@@ -199,12 +211,12 @@ private fun ConnectButton(running: Boolean, onClick: () -> Unit) {
         Box(
             contentAlignment = Alignment.Center,
             modifier = Modifier
-                .size(150.dp)
+                .size(134.dp)
                 .clip(CircleShape)
                 .background(HomeColors.Card2)
                 .border(4.dp, ring, CircleShape)
         ) {
-            Canvas(modifier = Modifier.size(56.dp)) {
+            Canvas(modifier = Modifier.size(50.dp)) {
                 val w = size.width
                 val h = size.height
                 val strokeWidth = 6.dp.toPx()
@@ -269,7 +281,90 @@ private fun ServerRow(
 }
 
 // ---------------------------------------------------------------------------
-// الشاشة الرئيسية
+// نافذة الإعداد المخصص (حقول التعديل السريع)
+// ---------------------------------------------------------------------------
+@Composable
+private fun CustomSetupDialog(
+    profile: ProfileItem,
+    history: List<String>,
+    onDismiss: () -> Unit,
+    onSave: (address: String, port: String, sni: String, host: String) -> Unit,
+) {
+    var address by remember { mutableStateOf(profile.server.orEmpty()) }
+    var port by remember { mutableStateOf(profile.serverPort.orEmpty()) }
+    var sni by remember { mutableStateOf(profile.sni.orEmpty()) }
+    var host by remember { mutableStateOf(profile.host.orEmpty()) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("إعداد مخصص") },
+        text = {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                OutlinedTextField(
+                    value = address,
+                    onValueChange = { address = it },
+                    label = { Text("عنوان السيرفر (IP أو دومين)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = port,
+                    onValueChange = { port = it },
+                    label = { Text("المنفذ") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = sni,
+                    onValueChange = { sni = it },
+                    label = { Text("SNI") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                if (history.isNotEmpty()) {
+                    Spacer(Modifier.height(6.dp))
+                    Row(
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        history.forEach { name ->
+                            Text(
+                                name,
+                                color = HomeColors.Accent,
+                                fontSize = 13.sp,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(50))
+                                    .background(HomeColors.Card2)
+                                    .clickable { sni = name }
+                                    .padding(horizontal = 12.dp, vertical = 6.dp)
+                            )
+                        }
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = host,
+                    onValueChange = { host = it },
+                    label = { Text("Host (اختياري، لـ WebSocket)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onSave(address, port, sni, host) }) { Text("حفظ وتطبيق") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("إلغاء") }
+        }
+    )
+}
+
+// ---------------------------------------------------------------------------
+// الشاشة الرئيسية (ثابتة بدون تمرير)
 // ---------------------------------------------------------------------------
 @Composable
 fun HomeScreen(
@@ -315,23 +410,33 @@ fun HomeScreen(
         }
     }
 
-    // عدّاد الوقت والبيانات (حركة التطبيق نفسه نحو السيرفر)
+    // عدّاد الوقت والبيانات: تُحفظ بداية الجلسة حتى لا يُصفَّر العدّاد عند الدخول للمتقدمة والعودة
     var elapsedSeconds by remember { mutableLongStateOf(0L) }
     var downBytes by remember { mutableLongStateOf(0L) }
     var upBytes by remember { mutableLongStateOf(0L) }
     LaunchedEffect(isRunning) {
+        val prefs = context.getSharedPreferences(HOME_PREFS, Context.MODE_PRIVATE)
         if (!isRunning) {
+            delay(1500)
+            prefs.edit().remove(KEY_SESS_START).remove(KEY_SESS_RX).remove(KEY_SESS_TX).apply()
             elapsedSeconds = 0L
             downBytes = 0L
             upBytes = 0L
             return@LaunchedEffect
         }
         val uid = Process.myUid()
-        val startTime = SystemClock.elapsedRealtime()
-        val baseRx = TrafficStats.getUidRxBytes(uid)
-        val baseTx = TrafficStats.getUidTxBytes(uid)
+        if (prefs.getLong(KEY_SESS_START, 0L) == 0L) {
+            prefs.edit()
+                .putLong(KEY_SESS_START, System.currentTimeMillis())
+                .putLong(KEY_SESS_RX, TrafficStats.getUidRxBytes(uid))
+                .putLong(KEY_SESS_TX, TrafficStats.getUidTxBytes(uid))
+                .apply()
+        }
+        val startTime = prefs.getLong(KEY_SESS_START, System.currentTimeMillis())
+        val baseRx = prefs.getLong(KEY_SESS_RX, -1L)
+        val baseTx = prefs.getLong(KEY_SESS_TX, -1L)
         while (true) {
-            elapsedSeconds = (SystemClock.elapsedRealtime() - startTime) / 1000
+            elapsedSeconds = ((System.currentTimeMillis() - startTime) / 1000).coerceAtLeast(0L)
             val rx = TrafficStats.getUidRxBytes(uid)
             val tx = TrafficStats.getUidTxBytes(uid)
             downBytes = if (rx < 0 || baseRx < 0) -1L else (rx - baseRx).coerceAtLeast(0L)
@@ -349,7 +454,8 @@ fun HomeScreen(
 
     var showPicker by remember { mutableStateOf(false) }
     var showAddMenu by remember { mutableStateOf(false) }
-    var customOn by rememberSaveable { mutableStateOf(false) }
+    var showCustomDialog by remember { mutableStateOf(false) }
+    var customOn by remember { mutableStateOf(loadCustomOn(context)) }
     var deleteTarget by remember { mutableStateOf<HomeServer?>(null) }
 
     MaterialTheme(colorScheme = HomeColorScheme) {
@@ -362,16 +468,14 @@ fun HomeScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .systemBarsPadding()
-                    .verticalScroll(rememberScrollState())
-                    .padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
+                    .padding(horizontal = 16.dp, vertical = 6.dp)
             ) {
                 // الشريط العلوي
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        "VPN الشخصي",
+                        "درب",
                         color = HomeColors.Text,
-                        fontSize = 22.sp,
+                        fontSize = 26.sp,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.weight(1f)
                     )
@@ -386,22 +490,30 @@ fun HomeScreen(
                     }
                 }
 
-                // زر الاتصال
-                Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    ConnectButton(running = isRunning) { onAction(MainAction.ToggleService) }
-                }
-                Text(
-                    statusText,
-                    color = if (isRunning) HomeColors.Connected else HomeColors.Muted,
-                    fontSize = 16.sp,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                if (isRunning) {
-                    OutlinedButton(
-                        onClick = { onAction(MainAction.TestCurrentServer) },
-                        modifier = Modifier.fillMaxWidth()
-                    ) { Text("اختبار الاتصال") }
+                // المنتصف: زر الاتصال والحالة (يأخذ المساحة المتبقية)
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        ConnectButton(running = isRunning) { onAction(MainAction.ToggleService) }
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            statusText,
+                            color = if (isRunning) HomeColors.Connected else HomeColors.Muted,
+                            fontSize = 15.sp,
+                            textAlign = TextAlign.Center,
+                            maxLines = 2,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        if (isRunning) {
+                            TextButton(onClick = { onAction(MainAction.TestCurrentServer) }) {
+                                Text("اختبار الاتصال", fontSize = 13.sp)
+                            }
+                        }
+                    }
                 }
 
                 // العدّادات
@@ -412,22 +524,27 @@ fun HomeScreen(
                         StatItem("الرفع", formatBytes(upBytes), Modifier.weight(1f))
                     }
                 }
+                Spacer(Modifier.height(10.dp))
 
                 // السيرفر
                 HomeCard {
-                    Text("السيرفر", color = HomeColors.Muted, fontSize = 12.sp)
-                    Spacer(Modifier.height(6.dp))
                     if (selected != null) {
                         Text(
                             serverTitle(selected.profile),
                             color = HomeColors.Text,
                             fontSize = 17.sp,
-                            fontWeight = FontWeight.SemiBold
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1
                         )
-                        Text(serverSubtitle(selected.profile), color = HomeColors.Muted, fontSize = 12.sp)
+                        Text(
+                            serverSubtitle(selected.profile),
+                            color = HomeColors.Muted,
+                            fontSize = 12.sp,
+                            maxLines = 1
+                        )
                     } else {
                         Text(
-                            "لا يوجد سيرفر. اضغط «إضافة» ثم «من الحافظة (رابط)».",
+                            "لا يوجد سيرفر. اضغط «إضافة» ثم «من الحافظة».",
                             color = HomeColors.Muted,
                             fontSize = 14.sp
                         )
@@ -486,6 +603,7 @@ fun HomeScreen(
                         }
                     }
                 }
+                Spacer(Modifier.height(10.dp))
 
                 // الإعداد المخصص
                 HomeCard {
@@ -498,105 +616,62 @@ fun HomeScreen(
                                 fontWeight = FontWeight.SemiBold
                             )
                             Text(
-                                "تعديل عنوان السيرفر و SNI بسرعة",
+                                if (customOn && selected != null && !selected.profile.sni.isNullOrBlank())
+                                    "SNI: " + selected.profile.sni
+                                else
+                                    "تعديل عنوان السيرفر و SNI بسرعة",
                                 color = HomeColors.Muted,
-                                fontSize = 12.sp
+                                fontSize = 12.sp,
+                                maxLines = 1
                             )
                         }
-                        Switch(checked = customOn, onCheckedChange = { customOn = it })
-                    }
-
-                    if (customOn && selected != null) {
-                        val profile = selected.profile
-                        var address by remember(selected.guid, profile) { mutableStateOf(profile.server.orEmpty()) }
-                        var port by remember(selected.guid, profile) { mutableStateOf(profile.serverPort.orEmpty()) }
-                        var sni by remember(selected.guid, profile) { mutableStateOf(profile.sni.orEmpty()) }
-                        var host by remember(selected.guid, profile) { mutableStateOf(profile.host.orEmpty()) }
-                        val history = remember(tick, sni) { loadSniHistory(context) }
-
-                        Spacer(Modifier.height(12.dp))
-                        OutlinedTextField(
-                            value = address,
-                            onValueChange = { address = it },
-                            label = { Text("عنوان السيرفر (IP أو دومين)") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        OutlinedTextField(
-                            value = port,
-                            onValueChange = { port = it },
-                            label = { Text("المنفذ") },
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        OutlinedTextField(
-                            value = sni,
-                            onValueChange = { sni = it },
-                            label = { Text("SNI") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        if (history.isNotEmpty()) {
-                            Spacer(Modifier.height(6.dp))
-                            Row(
-                                modifier = Modifier.horizontalScroll(rememberScrollState()),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                history.forEach { name ->
-                                    Text(
-                                        name,
-                                        color = HomeColors.Accent,
-                                        fontSize = 13.sp,
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(50))
-                                            .background(HomeColors.Card2)
-                                            .clickable { sni = name }
-                                            .padding(horizontal = 12.dp, vertical = 6.dp)
-                                    )
-                                }
-                            }
+                        if (customOn && selected != null) {
+                            TextButton(onClick = { showCustomDialog = true }) { Text("تعديل") }
                         }
-                        Spacer(Modifier.height(8.dp))
-                        OutlinedTextField(
-                            value = host,
-                            onValueChange = { host = it },
-                            label = { Text("Host (اختياري، لـ WebSocket)") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
+                        Switch(
+                            checked = customOn,
+                            onCheckedChange = { on ->
+                                customOn = on
+                                saveCustomOn(context, on)
+                                if (on && selected != null) showCustomDialog = true
+                            }
                         )
-                        Spacer(Modifier.height(12.dp))
-                        Button(
-                            onClick = {
-                                val updated = profile.copy(
-                                    server = address.trim().ifEmpty { profile.server },
-                                    serverPort = port.trim().ifEmpty { profile.serverPort },
-                                    sni = sni.trim().ifEmpty { null },
-                                    host = host.trim().ifEmpty { null },
-                                )
-                                scope.launch {
-                                    try {
-                                        withContext(Dispatchers.IO) {
-                                            MmkvManager.encodeServerConfig(selected.guid, updated)
-                                        }
-                                        pushSniHistory(context, sni)
-                                        tick++
-                                        Toast.makeText(context, "تم الحفظ", Toast.LENGTH_SHORT).show()
-                                        if (isRunning) onAction(MainAction.RestartService)
-                                    } catch (e: Exception) {
-                                        Toast.makeText(context, "تعذر الحفظ", Toast.LENGTH_SHORT).show()
-                                    }
-                                }
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        ) { Text("حفظ وتطبيق") }
                     }
                 }
-
-                Spacer(Modifier.height(24.dp))
+                Spacer(Modifier.height(8.dp))
             }
+        }
+
+        // نافذة الإعداد المخصص
+        if (showCustomDialog && selected != null) {
+            val profile = selected.profile
+            CustomSetupDialog(
+                profile = profile,
+                history = remember(tick) { loadSniHistory(context) },
+                onDismiss = { showCustomDialog = false },
+                onSave = { address, port, sni, host ->
+                    showCustomDialog = false
+                    val updated = profile.copy(
+                        server = address.trim().ifEmpty { profile.server },
+                        serverPort = port.trim().ifEmpty { profile.serverPort },
+                        sni = sni.trim().ifEmpty { null },
+                        host = host.trim().ifEmpty { null },
+                    )
+                    scope.launch {
+                        try {
+                            withContext(Dispatchers.IO) {
+                                MmkvManager.encodeServerConfig(selected.guid, updated)
+                            }
+                            pushSniHistory(context, sni)
+                            tick++
+                            Toast.makeText(context, "تم الحفظ", Toast.LENGTH_SHORT).show()
+                            if (isRunning) onAction(MainAction.RestartService)
+                        } catch (e: Exception) {
+                            Toast.makeText(context, "تعذر الحفظ", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+            )
         }
 
         // نافذة اختيار السيرفر
