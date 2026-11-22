@@ -84,7 +84,7 @@ import kotlinx.coroutines.withContext
 // ---------------------------------------------------------------------------
 // الألوان: خلفية كحلية داكنة، سماوي للأزرار، أخضر عند الاتصال
 // ---------------------------------------------------------------------------
-private object HomeColors {
+internal object HomeColors {
     val Bg = Color(0xFF0A0F1C)
     val Card = Color(0xFF131B2E)
     val Card2 = Color(0xFF1B2540)
@@ -116,7 +116,9 @@ private fun loadServers(): List<HomeServer> =
     MmkvManager.decodeAllServerList()
         .distinct()
         .mapNotNull { guid ->
-            MmkvManager.decodeServerConfig(guid)?.let { HomeServer(guid, it) }
+            MmkvManager.decodeServerConfig(guid)
+                ?.takeIf { it.remarks != SNI_TEST_REMARK }
+                ?.let { HomeServer(guid, it) }
         }
 
 // ---------------------------------------------------------------------------
@@ -125,7 +127,7 @@ private fun loadServers(): List<HomeServer> =
 private const val HOME_PREFS = "home_prefs"
 private const val KEY_SNI_HISTORY = "sni_history"
 
-private fun loadSniHistory(context: Context): List<String> =
+internal fun loadSniHistory(context: Context): List<String> =
     context.getSharedPreferences(HOME_PREFS, Context.MODE_PRIVATE)
         .getString(KEY_SNI_HISTORY, "")
         .orEmpty()
@@ -133,10 +135,10 @@ private fun loadSniHistory(context: Context): List<String> =
         .map { it.trim() }
         .filter { it.isNotEmpty() }
 
-private fun pushSniHistory(context: Context, sni: String) {
+internal fun pushSniHistory(context: Context, sni: String) {
     val value = sni.trim()
     if (value.isEmpty()) return
-    val list = (listOf(value) + loadSniHistory(context)).distinct().take(8)
+    val list = (listOf(value) + loadSniHistory(context)).distinct().take(40)
     context.getSharedPreferences(HOME_PREFS, Context.MODE_PRIVATE)
         .edit()
         .putString(KEY_SNI_HISTORY, list.joinToString("\n"))
@@ -154,6 +156,14 @@ private fun loadCustomOn(context: Context): Boolean =
 
 private fun saveCustomOn(context: Context, value: Boolean) {
     context.getSharedPreferences(HOME_PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_CUSTOM_ON, value).apply()
+}
+
+internal fun removeSniHistory(context: Context, sni: String) {
+    val list = loadSniHistory(context).filter { it != sni.trim() }
+    context.getSharedPreferences(HOME_PREFS, Context.MODE_PRIVATE)
+        .edit()
+        .putString(KEY_SNI_HISTORY, list.joinToString("\n"))
+        .apply()
 }
 
 private fun formatBytes(bytes: Long): String {
@@ -176,7 +186,7 @@ private fun formatDuration(totalSeconds: Long): String {
     return String.format(Locale.US, "%02d:%02d:%02d", h, m, s)
 }
 
-private fun serverTitle(profile: ProfileItem): String =
+internal fun serverTitle(profile: ProfileItem): String =
     profile.remarks.ifBlank { profile.server.orEmpty().ifBlank { "بدون اسم" } }
 
 private fun serverSubtitle(profile: ProfileItem): String {
@@ -344,6 +354,8 @@ private fun CustomSetupDialog(
     var port by remember { mutableStateOf(profile.serverPort.orEmpty()) }
     var sni by remember { mutableStateOf(profile.sni.orEmpty()) }
     var host by remember { mutableStateOf(profile.host.orEmpty()) }
+    var chips by remember { mutableStateOf(history) }
+    val context = LocalContext.current
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -374,23 +386,39 @@ private fun CustomSetupDialog(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
-                if (history.isNotEmpty()) {
+                if (chips.isNotEmpty()) {
                     Spacer(Modifier.height(6.dp))
                     Row(
                         modifier = Modifier.horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        history.forEach { name ->
-                            Text(
-                                name,
-                                color = HomeColors.Accent,
-                                fontSize = 13.sp,
+                        chips.forEach { name ->
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(50))
                                     .background(HomeColors.Card2)
-                                    .clickable { sni = name }
-                                    .padding(horizontal = 12.dp, vertical = 6.dp)
-                            )
+                            ) {
+                                Text(
+                                    name,
+                                    color = HomeColors.Accent,
+                                    fontSize = 13.sp,
+                                    modifier = Modifier
+                                        .clickable { sni = name }
+                                        .padding(start = 12.dp, top = 6.dp, bottom = 6.dp, end = 6.dp)
+                                )
+                                Text(
+                                    "✕",
+                                    color = HomeColors.Danger,
+                                    fontSize = 14.sp,
+                                    modifier = Modifier
+                                        .clickable {
+                                            removeSniHistory(context, name)
+                                            chips = chips - name
+                                        }
+                                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                                )
+                            }
                         }
                     }
                 }
@@ -451,6 +479,21 @@ fun HomeScreen(
     }
     val selected = servers.firstOrNull { it.guid == selectedGuid }
 
+    fun applySni(target: HomeServer, sni: String) {
+        val updated = target.profile.copy(sni = sni)
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) { MmkvManager.encodeServerConfig(target.guid, updated) }
+                pushSniHistory(context, sni)
+                tick++
+                Toast.makeText(context, "تم تطبيق SNI: $sni", Toast.LENGTH_SHORT).show()
+                if (isRunning) onAction(MainAction.RestartService)
+            } catch (e: Exception) {
+                Toast.makeText(context, "تعذر الحفظ", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     fun refreshLater() {
         scope.launch {
             delay(700)
@@ -506,6 +549,7 @@ fun HomeScreen(
     var showAddMenu by remember { mutableStateOf(false) }
     var showTopMenu by remember { mutableStateOf(false) }
     var showBackup by remember { mutableStateOf(false) }
+    var showChecker by remember { mutableStateOf(false) }
     var showCustomDialog by remember { mutableStateOf(false) }
     var customOn by remember { mutableStateOf(loadCustomOn(context)) }
     var deleteTarget by remember { mutableStateOf<HomeServer?>(null) }
@@ -550,6 +594,13 @@ fun HomeScreen(
                                 onClick = {
                                     showTopMenu = false
                                     onNavigate(MainDestination.Settings)
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("فاحص SNI") },
+                                onClick = {
+                                    showTopMenu = false
+                                    showChecker = true
                                 }
                             )
                             DropdownMenuItem(
@@ -750,6 +801,20 @@ fun HomeScreen(
                             Toast.makeText(context, "تعذر الحفظ", Toast.LENGTH_SHORT).show()
                         }
                     }
+                }
+            )
+        }
+
+        // فاحص SNI
+        if (showChecker && selected != null) {
+            SniCheckerDialog(
+                baseProfile = selected.profile,
+                guid = selected.guid,
+                onApply = { sni -> applySni(selected, sni) },
+                onHistoryChanged = { tick++ },
+                onDismiss = {
+                    showChecker = false
+                    tick++
                 }
             )
         }
