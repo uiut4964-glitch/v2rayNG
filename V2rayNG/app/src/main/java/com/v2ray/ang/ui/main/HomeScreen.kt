@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -57,7 +58,9 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -281,6 +284,53 @@ private fun ServerRow(
 }
 
 // ---------------------------------------------------------------------------
+// شعار HOOK: درع بداخله حرف H رجله اليمنى على شكل خطّاف
+// ---------------------------------------------------------------------------
+@Composable
+private fun HookLogo(modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier) {
+        val sx = size.width / 48f
+        val sy = size.height / 56f
+        val shield = Path().apply {
+            moveTo(24f * sx, 1f * sy)
+            lineTo(46f * sx, 8f * sy)
+            lineTo(46f * sx, 28f * sy)
+            cubicTo(46f * sx, 42f * sy, 36f * sx, 52f * sy, 24f * sx, 55f * sy)
+            cubicTo(12f * sx, 52f * sy, 2f * sx, 42f * sy, 2f * sx, 28f * sy)
+            lineTo(2f * sx, 8f * sy)
+            close()
+        }
+        drawPath(shield, color = HomeColors.Card2)
+        drawPath(
+            shield,
+            color = HomeColors.Accent,
+            style = Stroke(width = 3.2f * sx, cap = StrokeCap.Round, join = StrokeJoin.Round)
+        )
+        val legWidth = 4.2f * sx
+        drawLine(
+            color = HomeColors.Text,
+            start = Offset(15f * sx, 14f * sy),
+            end = Offset(15f * sx, 40f * sy),
+            strokeWidth = legWidth,
+            cap = StrokeCap.Round
+        )
+        val hook = Path().apply {
+            moveTo(33f * sx, 14f * sy)
+            lineTo(33f * sx, 34f * sy)
+            cubicTo(33f * sx, 39f * sy, 30f * sx, 42f * sy, 26f * sx, 40f * sy)
+        }
+        drawPath(hook, color = HomeColors.Text, style = Stroke(width = legWidth, cap = StrokeCap.Round, join = StrokeJoin.Round))
+        drawLine(
+            color = HomeColors.Connected,
+            start = Offset(15f * sx, 27f * sy),
+            end = Offset(33f * sx, 27f * sy),
+            strokeWidth = legWidth,
+            cap = StrokeCap.Round
+        )
+    }
+}
+
+// ---------------------------------------------------------------------------
 // نافذة الإعداد المخصص (حقول التعديل السريع)
 // ---------------------------------------------------------------------------
 @Composable
@@ -454,6 +504,8 @@ fun HomeScreen(
 
     var showPicker by remember { mutableStateOf(false) }
     var showAddMenu by remember { mutableStateOf(false) }
+    var showTopMenu by remember { mutableStateOf(false) }
+    var showBackup by remember { mutableStateOf(false) }
     var showCustomDialog by remember { mutableStateOf(false) }
     var customOn by remember { mutableStateOf(loadCustomOn(context)) }
     var deleteTarget by remember { mutableStateOf<HomeServer?>(null) }
@@ -470,23 +522,51 @@ fun HomeScreen(
                     .systemBarsPadding()
                     .padding(horizontal = 16.dp, vertical = 6.dp)
             ) {
-                // الشريط العلوي
+                // الشريط العلوي: شعار + اسم + قائمة
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    HookLogo(modifier = Modifier.size(width = 30.dp, height = 35.dp))
+                    Spacer(Modifier.width(10.dp))
                     Text(
-                        "درب",
+                        "HOOK VPN",
                         color = HomeColors.Text,
-                        fontSize = 26.sp,
+                        fontSize = 22.sp,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.weight(1f)
                     )
-                    TextButton(onClick = { onNavigate(MainDestination.Logcat) }) {
-                        Text("السجل", fontSize = 13.sp)
-                    }
-                    TextButton(onClick = { onNavigate(MainDestination.Settings) }) {
-                        Text("الإعدادات", fontSize = 13.sp)
-                    }
-                    TextButton(onClick = onOpenAdvanced) {
-                        Text("المتقدمة", fontSize = 13.sp)
+                    Box {
+                        TextButton(onClick = { showTopMenu = true }) {
+                            Text("⋮", fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                        }
+                        DropdownMenu(expanded = showTopMenu, onDismissRequest = { showTopMenu = false }) {
+                            DropdownMenuItem(
+                                text = { Text("السجل") },
+                                onClick = {
+                                    showTopMenu = false
+                                    onNavigate(MainDestination.Logcat)
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("الإعدادات") },
+                                onClick = {
+                                    showTopMenu = false
+                                    onNavigate(MainDestination.Settings)
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("نسخ احتياطي مشفّر") },
+                                onClick = {
+                                    showTopMenu = false
+                                    showBackup = true
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("الشاشة المتقدمة") },
+                                onClick = {
+                                    showTopMenu = false
+                                    onOpenAdvanced()
+                                }
+                            )
+                        }
                     }
                 }
 
@@ -671,6 +751,14 @@ fun HomeScreen(
                         }
                     }
                 }
+            )
+        }
+
+        // نافذة النسخ الاحتياطي المشفّر
+        if (showBackup) {
+            BackupDialog(
+                onDismiss = { showBackup = false },
+                onChanged = { tick++ }
             )
         }
 
