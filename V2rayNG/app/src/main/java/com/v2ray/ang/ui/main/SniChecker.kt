@@ -328,21 +328,27 @@ fun SniCheckerDialog(
                     }
                 }
 
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    TextButton(
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
                         enabled = ok.isNotEmpty(),
+                        modifier = Modifier.weight(1f),
                         onClick = { ok.minByOrNull { it.ms }?.let { onApply(it.name) } }
-                    ) { Text("تطبيق الأفضل") }
-                    TextButton(
+                    ) { Text("تطبيق الأفضل", fontSize = 13.sp, maxLines = 1) }
+                    OutlinedButton(
                         enabled = ok.isNotEmpty(),
+                        modifier = Modifier.weight(1f),
                         onClick = {
                             ok.sortedByDescending { it.ms }.forEach { pushSniHistory(context, it.name) }
                             onHistoryChanged()
                             note = "تم حفظ الناجحة في سجل SNI"
                         }
-                    ) { Text("حفظ في السجل") }
-                    TextButton(
+                    ) { Text("حفظ في السجل", fontSize = 13.sp, maxLines = 1) }
+                }
+                Spacer(Modifier.height(6.dp))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
                         enabled = ok.isNotEmpty(),
+                        modifier = Modifier.weight(1f),
                         onClick = {
                             val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                             cm.setPrimaryClip(
@@ -350,8 +356,11 @@ fun SniCheckerDialog(
                             )
                             note = "تم نسخ الناجحة"
                         }
-                    ) { Text("نسخ") }
-                    TextButton(onClick = { stop(); onDismiss() }) { Text("إغلاق") }
+                    ) { Text("نسخ", fontSize = 13.sp, maxLines = 1) }
+                    Button(
+                        modifier = Modifier.weight(1f),
+                        onClick = { stop(); onDismiss() }
+                    ) { Text("إغلاق", fontSize = 13.sp, maxLines = 1) }
                 }
             }
         }
