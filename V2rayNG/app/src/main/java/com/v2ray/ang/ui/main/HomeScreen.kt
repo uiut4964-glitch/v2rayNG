@@ -715,10 +715,38 @@ fun HomeScreen(
                                     }
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("إدخال يدوي (VLESS)") },
+                                    text = { Text("إدخال يدوي: VLESS") },
                                     onClick = {
                                         showAddMenu = false
                                         onAction(MainAction.ImportManually(EConfigType.VLESS.value))
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("إدخال يدوي: VMess") },
+                                    onClick = {
+                                        showAddMenu = false
+                                        onAction(MainAction.ImportManually(EConfigType.VMESS.value))
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("إدخال يدوي: Trojan") },
+                                    onClick = {
+                                        showAddMenu = false
+                                        onAction(MainAction.ImportManually(EConfigType.TROJAN.value))
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("إدخال يدوي: Shadowsocks") },
+                                    onClick = {
+                                        showAddMenu = false
+                                        onAction(MainAction.ImportManually(EConfigType.SHADOWSOCKS.value))
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("إدخال يدوي: WireGuard") },
+                                    onClick = {
+                                        showAddMenu = false
+                                        onAction(MainAction.ImportManually(EConfigType.WIREGUARD.value))
                                     }
                                 )
                                 if (selected != null) {
