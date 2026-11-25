@@ -182,7 +182,9 @@ fun SniCheckerDialog(
             try {
                 var base = profile
                 // السيرفر الذي يستخدم TLS بشهادة ذاتية يحتاج بصمة الشهادة أولاً
-                if (base.security == "tls" && base.pinnedCA256.isNullOrBlank()) {
+                if (base.security == "tls" && base.pinnedCA256.isNullOrBlank() &&
+                    base.verifyPeerCertByName.isNullOrBlank() && base.insecure != true
+                ) {
                     val sha = withContext(Dispatchers.IO) {
                         CertificateFingerprintManager.fetchForManualFill(base)
                     }
